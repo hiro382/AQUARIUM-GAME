@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bikini Bottom Aquarium Deluxe</title>
+    <style>
+        body { text-align: center; background: #050505; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 10px; overflow: hidden; }
+        .shop-container { display: flex; justify-content: center; gap: 8px; margin-bottom: 8px; position: relative; z-index: 1001; }
+        .shop-item {
+            background: rgba(0, 70, 150, 0.7); border: 2px solid #ffd700; padding: 10px;
+            border-radius: 12px; width: 140px; cursor: pointer; transition: 0.3s; backdrop-filter: blur(5px);
+        }
+        .shop-item:hover { background: rgba(0, 100, 200, 0.9); transform: translateY(-3px); }
+        .price { color: #ffd700; font-weight: bold; display: block; pointer-events: none; }
+        .label { pointer-events: none; font-size: 14px; }
+        canvas { 
+            background: linear-gradient(to bottom, #4facfe 0%, #00f2fe 100%); 
+            border: 10px solid #3e2723; border-radius: 15px;
+            box-shadow: 0 0 50px rgba(0,0,0,0.9); cursor: crosshair; 
+        }
+        #overlay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9); padding: 40px; border-radius: 20px;
+            border: 3px solid #ffd700; width: 320px; z-index: 2000;
+        }
+        button { background: #ffd700; color: #111; border: none; padding: 15px 30px; font-size: 18px; border-radius: 10px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="shop-container">
+        <div class="shop-item" onclick="buyFish()">
+            <span class="label">BELI IKAN 🐟</span>
+            <span class="price" id="fishPriceDisplay">$100</span>
+        </div>
+        <div class="shop-item" onclick="upgradeFood()">
+            <span class="label">UPGRADE 💊</span>
+            <span class="price" id="foodPriceDisplay">$200</span>
+        </div>
+        <div class="shop-item" style="border-color: #ff5252; cursor: default;">
+            <span class="label">BOSS 👾</span>
+            <span id="timerDisplay" style="color: #ff5252; font-weight: bold;">01:00</span>
+        </div>
+        <div class="shop-item" style="border-color: #81d4fa; cursor: default;">
+            <span class="label">EMAS 💰</span>
+            <span class="price" id="moneyDisplay">$200</span>
+        </div>
+    </div>
+
+    <div style="position: relative; display: inline-block;">
+        <canvas id="gameCanvas" width="950" height="520"></canvas>
+        <div id="overlay">
+            <div id="startMenu">
+                <h1 style="color: #ffd700;">BIKINI BOTTOM</h1>
+                <p>Harga akan naik setiap kali belanja!</p>
+                <button onclick="startGame()">MULAI GAME</button>
+            </div>
+            <div id="gameOverMenu" style="display:none;">
+                <h2 style="color: #ff5252;">GAME OVER</h2>
+                <button onclick="startGame()">MAIN LAGI</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const moneyDisplay = document.getElementById("moneyDisplay");
+        const fishPriceDisplay = document.getElementById("fishPriceDisplay");
+        const foodPriceDisplay = document.getElementById("foodPriceDisplay");
+        const timerDisplay = document.getElementById("timerDisplay");
+        const overlay = document.getElementById("overlay");
+
+        let money = 200, fishes = [], foods = [], coins = [], diamonds = [], bubbles = [], decorations = [], clouds = [], popups = [];
+        let gameActive = false, foodLevel = 1, fishPrice = 100, upgradePrice = 200;
+        let monsterTimer = 60, monster = null, shakeTime = 0;
+        let gary = { x: 475, y: 460, speed: 1.6 };
+
+        // --- GLOBAL FUNCTIONS ---
+        function buyFish() {
+            if (gameActive && money >= fishPrice) {
+                money -= fishPrice;
+                fishes.push(new Fish());
+                fishPrice += 50; 
+                updateUI();
+                createPopup(canvas.width/2, 200, "IKAN BARU! 🐟", "#00ff00");
+            } else if (gameActive) {
+                createPopup(canvas.width/2, 200, "UANG KURANG!", "red");
+            }
+        }
+
+        function upgradeFood() {
+            if (gameActive && money >= upgradePrice) {
+                money -= upgradePrice;
+                foodLevel++;
+                upgradePrice = Math.floor(upgradePrice * 1.6);
+                updateUI();
+                createPopup(canvas.width/2, 200, "MAKANAN LV " + foodLevel + "! 💊", "#ffd700");
+            } else if (gameActive) {
+                createPopup(canvas.width/2, 200, "UANG KURANG!", "red");
+            }
+        }
+
+        function updateUI() {
+            moneyDisplay.innerText = "$" + money;
+            fishPriceDisplay.innerText = "$" + fishPrice;
+            foodPriceDisplay.innerText = "$" + upgradePrice;
+        }
+
+        function createPopup(x, y, text, color) { popups.push({ x, y, text, color, life: 50 }); }
+
+        function initEnvironment() {
+            clouds = [];
+            const colors = ['rgba(255, 182, 193, 0.4)', 'rgba(135, 206, 250, 0.4)', 'rgba(221, 160, 221, 0.4)'];
+            for(let i=0; i<6; i++) clouds.push({ x: Math.random()*950, y: 30+Math.random()*80, size: 25+Math.random()*20, color: colors[i%3], speed: 0.2+Math.random()*0.3 });
+
+            decorations = [];
+            for(let i=0; i<18; i++) decorations.push({ type: 'grass', x: Math.random()*950, h: 40+Math.random()*60, off: Math.random()*100 });
+            const emojis = ["🪸", "🐚", "🦀", "🗿", "🌴", "⚓"];
+            for(let i=0; i<15; i++) decorations.push({ type: 'emoji', x: Math.random()*900, emoji: emojis[Math.floor(Math.random()*emojis.length)] });
+        }
+
+        class Fish {
+            constructor() {
+                this.x = Math.random()*800+50; this.y = Math.random()*300+100;
+                this.speedX = (Math.random()-0.5)*2; this.speedY = (Math.random()-0.5)*2;
+                this.health = 30000; this.lastUpdate = Date.now();
+                this.eatenCount = 0; this.level = 1; this.wanderAngle = Math.random() * Math.PI * 2;
+            }
+            update() {
+                this.health -= (Date.now() - this.lastUpdate);
+                this.lastUpdate = Date.now();
+                if (this.health <= 0) return false;
+
+                let hasAction = false;
+                if (monster) {
+                    let d = Math.hypot(this.x - monster.x, this.y - monster.y);
+                    if (d < 250) {
+                        let a = Math.atan2(this.y - monster.y, this.x - monster.x);
+                        this.speedX += Math.cos(a) * 0.3; this.speedY += Math.sin(a) * 0.3;
+                        hasAction = true;
+                    }
+                }
+                if (!hasAction && foods.length > 0) {
+                    let t = foods.sort((a,b) => Math.hypot(a.x-this.x, a.y-this.y) - Math.hypot(b.x-this.x, b.y-this.y))[0];
+                    let a = Math.atan2(t.y - this.y, t.x - this.x);
+                    this.speedX += Math.cos(a)*0.12; this.speedY += Math.sin(a)*0.12;
+                    hasAction = true;
+                }
+                if (!hasAction) {
+                    this.wanderAngle += (Math.random()-0.5)*0.3;
+                    this.speedX += Math.cos(this.wanderAngle)*0.06; this.speedY += Math.sin(this.wanderAngle)*0.06;
+                }
+
+                // Anti-Stacking
+                fishes.forEach(other => {
+                    if (other === this) return;
+                    let dx = this.x - other.x, dy = this.y - other.y;
+                    let dist = Math.hypot(dx, dy);
+                    if (dist < 55) {
+                        let a = Math.atan2(dy, dx);
+                        this.speedX += Math.cos(a)*0.15; this.speedY += Math.sin(a)*0.15;
+                    }
+                });
+
+                this.speedX *= 0.98; this.speedY *= 0.98;
+                this.x += this.speedX; this.y += this.speedY;
+                if (this.x < 60 || this.x > 890) this.speedX *= -0.8;
+                if (this.y < 80 || this.y > 440) this.speedY *= -0.8;
+
+                foods.forEach((f, i) => {
+                    if (Math.hypot(this.x - f.x, this.y - f.y) < 40) {
+                        foods.splice(i, 1);
+                        this.health = Math.min(30000, this.health + 15000);
+                        this.eatenCount++;
+                        if(this.eatenCount >= 5 && this.level < 3) { 
+                            this.level++; this.eatenCount = 0; 
+                            createPopup(this.x, this.y, "LEVEL UP!", "#00ff00"); 
+                        }
+                        coins.push({x: this.x, y: this.y, val: 25 * this.level * foodLevel});
+                    }
+                });
+
+                ctx.save(); ctx.translate(this.x, this.y);
+                if(this.speedX < 0) ctx.scale(-1,1);
+                ctx.font = (35 + (this.level*7)) + "px Arial";
+                let emoji = this.level === 1 ? "🐟" : (this.level === 2 ? "🐠" : "🐬");
+                if(this.health < 10000) emoji = "🐡";
+                ctx.fillText(emoji, -20, 15);
+                ctx.restore();
+                return true;
+            }
+        }
+
+        class Monster {
+            constructor() { this.x = 475; this.y = 260; this.hp = 15; }
+            update() {
+                if (fishes.length > 0) {
+                    let a = Math.atan2(fishes[0].y - this.y, fishes[0].x - this.x);
+                    this.x += Math.cos(a)*1.3; this.y += Math.sin(a)*1.3;
+                    fishes.forEach((f, i) => { if (Math.hypot(this.x - f.x, this.y - f.y) < 55) { fishes.splice(i, 1); shakeTime = 15; } });
+                }
+                ctx.font = "85px Arial"; ctx.fillText("👾", this.x-40, this.y+35);
+                ctx.fillStyle = "red"; ctx.fillRect(this.x-40, this.y-65, 80, 8);
+                ctx.fillStyle = "#00ff00"; ctx.fillRect(this.x-40, this.y-65, (this.hp/15)*80, 8);
+                return this.hp > 0;
+            }
+        }
+
+        function startGame() {
+            money = 200; fishPrice = 100; upgradePrice = 200; foodLevel = 1;
+            fishes = [new Fish(), new Fish(), new Fish()];
+            foods = []; coins = []; diamonds = []; bubbles = []; monster = null; monsterTimer = 60; popups = [];
+            initEnvironment(); updateUI();
+            gameActive = true; overlay.style.display = "none"; document.getElementById("gameOverMenu").style.display = "none";
+        }
+
+        canvas.addEventListener("mousedown", (e) => {
+            if (!gameActive) return;
+            const r = canvas.getBoundingClientRect();
+            let mx = e.clientX - r.left, my = e.clientY - r.top;
+
+            if (monster && Math.hypot(mx - monster.x, my - monster.y) < 80) {
+                monster.hp--; shakeTime = 5;
+                if (monster.hp <= 0) { diamonds.push({x: monster.x, y: monster.y}); monster = null; monsterTimer = 60; }
+                return;
+            }
+
+            let collect = false;
+            diamonds.forEach((d, i) => { if (Math.hypot(mx-d.x, my-d.y) < 80) { money += 150; createPopup(d.x, d.y, "+$150", "#00f2fe"); diamonds.splice(i, 1); collect = true; } });
+            coins.forEach((c, i) => { if (Math.hypot(mx-c.x, my-c.y) < 70) { money += c.val; createPopup(c.x, c.y, "+$" + c.val, "yellow"); coins.splice(i, 1); collect = true; } });
+
+            if (!collect && my < 470 && money >= 10) { money -= 10; foods.push({x: mx, y: my}); updateUI(); }
+        });
+
+        function gameLoop() {
+            ctx.save();
+            if (shakeTime > 0) { ctx.translate(Math.random()*5-2.5, Math.random()*5-2.5); shakeTime--; }
+            ctx.clearRect(0, 0, 950, 520);
+            
+            // Flower Clouds
+            clouds.forEach(c => {
+                ctx.fillStyle = c.color;
+                for(let i=0; i<5; i++) {
+                    let a = (i * 2 * Math.PI) / 5;
+                    ctx.beginPath(); ctx.arc(c.x + Math.cos(a)*c.size, c.y + Math.sin(a)*c.size, c.size*0.8, 0, Math.PI*2); ctx.fill();
+                }
+                c.x -= c.speed; if(c.x < -100) c.x = 1000;
+            });
+            
+            // Pasir & Hiasan Bawah
+            ctx.fillStyle = "#edd19d"; ctx.fillRect(0, 470, 950, 50);
+            decorations.forEach(d => {
+                if(d.type === 'grass') {
+                    ctx.strokeStyle = "#1b5e20"; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(d.x, 480);
+                    ctx.quadraticCurveTo(d.x + Math.sin(Date.now()*0.002 + d.off)*15, 430, d.x, 480 - d.h); ctx.stroke();
+                } else { ctx.font = "35px Arial"; ctx.fillText(d.emoji, d.x, 490); }
+            });
+
+            if (gameActive) {
+                if (Math.random() < 0.05) bubbles.push({x: Math.random()*950, y: 530, r: 2+Math.random()*3, s: 1+Math.random()*2});
+                bubbles.forEach((b, i) => { b.y -= b.s; ctx.strokeStyle = "white"; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.stroke(); if(b.y < -10) bubbles.splice(i, 1); });
+
+                fishes = fishes.filter(f => f.update());
+                foods.forEach((f, i) => { f.y += 1.5; ctx.font = "20px Arial"; ctx.fillText(foodLevel > 1 ? "💊" : "🍪", f.x-10, f.y); if(f.y > 470) foods.splice(i,1); });
+                coins.forEach((c, i) => { c.y += 1.2; ctx.font = "35px Arial"; ctx.fillText("💰", c.x-15, c.y); if(c.y > 470) coins.splice(i,1); });
+                diamonds.forEach((d, i) => { d.y += 0.8; ctx.font = "45px Arial"; ctx.fillText("💎", d.x-20, d.y); if(d.y > 470) diamonds.splice(i,1); });
+                
+                // Gary the Snail Logic
+                let target = coins.concat(diamonds).sort((a,b) => Math.hypot(a.x-gary.x, a.y-gary.y) - Math.hypot(b.x-gary.x, b.y-gary.y))[0];
+                if(target) {
+                    if(gary.x < target.x) gary.x += 1.6; else gary.x -= 1.6;
+                    if(Math.abs(gary.x - target.x) < 30 && target.y > 440) {
+                        let val = target.val || 150;
+                        money += val; createPopup(target.x, target.y, "+$" + val, "yellow");
+                        if(target.val) coins = coins.filter(c => c !== target); else diamonds = diamonds.filter(d => d !== target);
+                        updateUI();
+                    }
+                }
+                ctx.font = "40px Arial"; ctx.fillText("🐌", gary.x-20, 465);
+
+                if (monster) monster.update();
+                
+                popups.forEach((p, i) => {
+                    ctx.fillStyle = p.color; ctx.font = "bold 20px Arial"; ctx.fillText(p.text, p.x, p.y);
+                    p.y -= 1; p.life--; if(p.life <= 0) popups.splice(i, 1);
+                });
+
+                if (fishes.length === 0) { gameActive = false; document.getElementById("gameOverMenu").style.display = "block"; overlay.style.display = "block"; }
+                if(!monster) {
+                    monsterTimer -= 0.016;
+                    if(monsterTimer <= 0) monster = new Monster();
+                    timerDisplay.innerText = "00:" + Math.ceil(monsterTimer).toString().padStart(2, '0');
+                }
+            }
+            ctx.restore();
+            requestAnimationFrame(gameLoop);
+        }
+        gameLoop();
+    </script>
+</body>
+</html>
